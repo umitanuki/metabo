@@ -11,5 +11,8 @@ gram.go: gram.y
 test: scan.go gram.go
 	go test bigpot/parser
 
+coverage: scan.go gram.go
+	gocov test bigpot/parser | gocov report
+
 clean:
-	rm -f scan.go gram.go
+	rm -f scan.go gram.go y.output

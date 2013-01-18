@@ -562,11 +562,11 @@ other			.
 
 {param}
 	l.SET_YYLLOC()
-	if val, err := strconv.Atoi(l.getBuf()); err == nil {
+	if val, err := strconv.Atoi(l.getBuf()[1:]); err == nil {
 		lval.ival = val
 		return PARAM
 	}
-	l.Error("value ouf of range for param")
+	l.Error("value out of range for param")
 
 {integer}
 	l.SET_YYLLOC()
@@ -605,13 +605,25 @@ other			.
 	return FCONST
 
 {identifier}
-	/* TODO: keyword, to_lower() */
-	ident := l.getBuf()
-	lval.str = ident
+	yystr := l.getBuf()
+	/*
+	 * If this is a keyword, return the token number instead of IDENT
+	 */
+	if keyword, err := findKeyword(yystr); err == nil {
+		lval.keyword = keyword.name
+		return keyword.token
+	}
+	lval.str = strings.ToLower(yystr)
+	lval.str = yystr
 	return IDENT
 
 {other}
-	return 1
+	l.SET_YYLLOC()
+	return int(l.buf[0])
+
+\0
+	l.SET_YYLLOC()
+	return yyEofCode
 
 
 %%

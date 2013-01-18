@@ -16,6 +16,7 @@ type Node struct {
 	node   *Node
 	str		string
 	ival	int
+	keyword	string
 }
 
 %token
@@ -38,6 +39,8 @@ type Node struct {
 %token <str> IDENT FCONST SCONST Op
 %token <ival> ICONST PARAM
 %token        TYPECAST DOT_DOT COLON_EQUALS
+
+%token <keyword> SELECT
 
 %%
 statements: /* empty */
