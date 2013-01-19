@@ -24,6 +24,7 @@ type keyword struct {
  * the set of keywords at compile time.
  */
 var keywordList = []keyword{
+	{"from", FROM, ReservedKeyword},
 	{"select", SELECT, ReservedKeyword},
 }
 

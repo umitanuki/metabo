@@ -18,6 +18,8 @@ type lexer struct {
 
 	lesspos int
 	lessbuf []rune
+
+	dolqstart string
 }
 
 func newLexer(source io.RuneReader) *lexer {
@@ -51,6 +53,10 @@ func (l *lexer) clearBuf() {
 
 func (l *lexer) startLiteral() {
 	l.literalbuf = l.literalbuf[:0]
+}
+
+func (l *lexer) addLiteralRune(lit rune) {
+	l.literalbuf = append(l.literalbuf, lit)
 }
 
 func (l *lexer) addLiteral(lits []rune) {
@@ -218,9 +224,6 @@ xbinside		[^']*
 xhstart			[xX]{quote}
 xhinside		[^']*
 
-/* National character */
-xnstart			[nN]{quote}
-
 /* Quoted string that allows backslash escapes */
 xestart			[eE]{quote}
 xeinside		[^\\']+
@@ -230,7 +233,8 @@ xehexesc		[\\]x[0-9A-Fa-f]{1,2}
 xeunicode		[\\](u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})
 xeunicodebad	[\\]([uU])
 
-/* Extended quote
+/*
+ * Extended quote
  * xqdouble implements embedded quote, ''''
  */
 xqstart			{quote}
@@ -393,32 +397,58 @@ other			.
 	l.Error("unterminated /* comment")
 
 {xbstart}
+	/*
+	 * Binary bit type.
+	 * At some point we should simply pass the string
+	 * forward to the parser and label it there.
+	 * In the meantime, place a leading "b" on the string
+	 * to mark it for the input routine as a binary string.
+	 */
+	l.SET_YYLLOC()
 	l.BEGIN(xb)
+	l.startLiteral()
+	l.addLiteralRune('b')
 
 <xb>{quotestop} |
 <xb>{quotefail}
 	l.yyless(1)
 	l.BEGIN(INITIAL)
+	lval.str = string(l.literalbuf)
+	return BCONST
 
 <xh>{xhinside} |
 <xb>{xbinside}
+	l.addLiteral(l.buf)
 
 <xh>{quotecontinue} |
 <xb>{quotecontinue}
 	/* ignore */
 
-	/*
-	<xb><<EOF>>
-		l.Error("unterminated bit string literal")
-	*/
+<xb>\0
+	l.Error("unterminated bit string literal")
 
 {xhstart}
+	/*
+	 * Hexadecimal bit type.
+	 * At some point we should simply pass the string
+	 * forward to the parser and label it there.
+	 * In the meantime, place a leading "x" on the string
+	 * to mark it for the input routine as a hex string.
+	 */
+	l.SET_YYLLOC()
+	l.BEGIN(xh)
+	l.startLiteral()
+	l.addLiteralRune('x')
 
 <xh>{quotestop} |
 <xh>{quotefail}
+	l.yyless(1)
+	l.BEGIN(INITIAL)
+	lval.str = string(l.literalbuf)
+	return XCONST
 
-{xnstart}
-	l.BEGIN(xh)
+<xh>\0
+	l.Error("unterminated hexadecimal string literal")
 
 {xqstart}
 	l.SET_YYLLOC()
@@ -444,31 +474,87 @@ other			.
 
 
 {dolqdelim}
+	l.SET_YYLLOC()
+	l.dolqstart = l.getBuf()
 	l.BEGIN(xdolq)
+	l.startLiteral()
 
 {dolqfailed}
+	l.SET_YYLLOC()
+	l.yyless(1)
+	return int(l.buf[0])
 
 <xdolq>{dolqdelim}
-	l.BEGIN(INITIAL)
+	if l.getBuf() == l.dolqstart {
+		l.dolqstart = ""
+		l.BEGIN(INITIAL)
+		lval.str = string(l.literalbuf)
+		return SCONST
+	} else {
+		/*
+		 * When we fail to match $...$ to dolqstart, transfer
+		 * the $... part to the output, but put back the final
+		 * $ for rescanning.  Consider $delim$...$junk$delim$
+		 */
+		yyleng := len(l.buf)
+		l.addLiteral(l.buf[:yyleng-1])
+		l.yyless(yyleng - 1)
+	}
 
 <xdolq>{dolqinside}
+	l.addLiteral(l.buf)
 
 <xdolq>{dolqfailed}
+	l.addLiteral(l.buf)
 
 <xdolq>.
+	/* This is only needed for $ inside the quoted text */
+	l.addLiteralRune(l.buf[0])
+
+<xdolq>\0
+	l.Error("unterminated dollar-quoted string")
 
 {xdstart}
+	l.SET_YYLLOC()
 	l.BEGIN(xd)
+	l.startLiteral()
 
 <xd>{xdstop}
 	l.BEGIN(INITIAL)
+	if len(l.literalbuf) == 0 {
+		l.Error("zero-length delimited identifier")
+	}
+	ident := string(l.literalbuf)
+	/* TODO: NAMEDATALEN */
+	/*
+	if (yyextra->literallen >= NAMEDATALEN)
+		truncate_identifier(ident, yyextra->literallen, true);
+	*/
+	lval.str = ident
+	return IDENT
 
 <xd>{xddouble}
+	l.addLiteralRune('"')
 
 <xd>{xdinside}
+	l.addLiteral(l.buf)
+
+<xd>\0
+	l.Error("unterminated quoted identifier")
 
 {typecast}
+	l.SET_YYLLOC()
 	return TYPECAST
+
+	/*
+	{dot_dot}
+		l.SET_YYLLOC()
+		return DOT_DOT
+
+	{colon_equals}
+		l.SET_YYLLOC()
+		return COLON_EQUALS
+	*/
 
 {self}
 	l.SET_YYLLOC()

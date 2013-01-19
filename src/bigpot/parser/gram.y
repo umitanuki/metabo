@@ -36,11 +36,11 @@ type Node struct {
  * DOT_DOT is unused in the core SQL grammar, and so will always provoke
  * parse errors.  It is needed by PL/pgsql.
  */
-%token <str> IDENT FCONST SCONST Op
+%token <str> IDENT FCONST SCONST BCONST XCONST Op
 %token <ival> ICONST PARAM
 %token        TYPECAST DOT_DOT COLON_EQUALS
 
-%token <keyword> SELECT
+%token <keyword> FROM SELECT
 
 %%
 statements: /* empty */

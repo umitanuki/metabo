@@ -13,20 +13,20 @@ func strLexer(input string) *lexer {
 func (l *lexer) lexPrintExpect(expected int) {
 	lval := &yySymType{}
 	if token := l.Lex(lval); token != expected {
-		fmt.Printf("not expected token: %d != %d", token, expected)
+		fmt.Printf("not expected token: %d != %d\n", token, expected)
 		return
 	}
 	switch expected {
 	default:
 		if expected > 0 && expected < 127 {
-			fmt.Printf(" %c", expected)
+			fmt.Printf("%c\n", expected)
 		} else if expected > COLON_EQUALS { /* too hacky... */
-			fmt.Printf(" %s", lval.keyword)
+			fmt.Printf("%s\n", lval.keyword)
 		} else {
-			fmt.Printf(" %s", lval.str)
+			fmt.Printf("%s\n", lval.str)
 		}
 	case ICONST, PARAM:
-		fmt.Printf(" %d", lval.ival)
+		fmt.Printf("%d\n", lval.ival)
 	}
 }
 
@@ -37,17 +37,41 @@ func recoverPanic() {
 }
 
 func ExampleLex_1() {
-	lexer := strLexer("select 1")
+	lexer := strLexer("select 1 -- comment_comment\n2")
 	lexer.lexPrintExpect(SELECT)
-	// Output: select
+	lexer.lexPrintExpect(ICONST)
+	lexer.lexPrintExpect(ICONST)
+	// Output:
+	// select
+	// 1
+	// 2
 }
 
-func ExampleLex_2() {
-	lexer := strLexer("select 'foo'  /* comment */ bar")
+func ExampleLex_consts() {
+	lexer := strLexer("b'0101' x'ff'")
+	lexer.lexPrintExpect(BCONST)
+	lexer.lexPrintExpect(XCONST)
+	// Output:
+	// b0101
+	// xff
+}
+
+func ExampleLex_sconsts() {
+	lexer := strLexer("select 'foo'  /* comment /* c2 */ */ bar " +
+					  "$$lex$$ $body$text$body$  $a$sentence$c$a$ ")
 	lexer.lexPrintExpect(SELECT)
 	lexer.lexPrintExpect(SCONST)
 	lexer.lexPrintExpect(IDENT)
-	// Output: select foo bar
+	lexer.lexPrintExpect(SCONST)
+	lexer.lexPrintExpect(SCONST)
+	lexer.lexPrintExpect(SCONST)
+	// Output:
+	// select
+	// foo
+	// bar
+	// lex
+	// text
+	// sentence$c
 }
 
 func ExampleLex_numbers() {
@@ -59,7 +83,14 @@ func ExampleLex_numbers() {
 	lexer.lexPrintExpect(FCONST)
 	lexer.lexPrintExpect(FCONST)
 	lexer.lexPrintExpect(FCONST)
-	// Output: 10 0.1 e 1.53e-1 1. 0001.999 9999999999999999999
+	// Output:
+	// 10
+	// 0.1
+	// e
+	// 1.53e-1
+	// 1.
+	// 0001.999
+	// 9999999999999999999
 }
 
 func ExampleLex_operators() {
@@ -71,14 +102,23 @@ func ExampleLex_operators() {
 	lexer.lexPrintExpect(ICONST)
 	lexer.lexPrintExpect(Op)
 	lexer.lexPrintExpect(Op)
-	// Output: 1 % 2 - 10 <> <>
+	// Output:
+	// 1
+	// %
+	// 2
+	// -
+	// 10
+	// <>
+	// <>
 }
 
 func ExampleLex_params() {
 	lexer := strLexer("$1 $0")
 	lexer.lexPrintExpect(PARAM)
 	lexer.lexPrintExpect(PARAM)
-	// Output: 1 0
+	// Output:
+	// 1
+	// 0
 }
 
 func ExampleLex_negative1() {
@@ -95,4 +135,32 @@ func ExampleLex_params_negative() {
 	lexer := strLexer("$99999999999999999999999999999")
 	lexer.lexPrintExpect(PARAM)
 	// Output: failed: value out of range for param
+}
+
+func ExampleLex_xb_negative() {
+	defer recoverPanic()
+	lexer := strLexer("b'01010")
+	lexer.lexPrintExpect(BCONST)
+	// Output: failed: unterminated bit string literal
+}
+
+func ExmapleLex_xh_negative() {
+	defer recoverPanic()
+	lexer := strLexer("x'ffee")
+	lexer.lexPrintExpect(XCONST)
+	// Output: failed: unterminated hexadecimal string literal
+}
+
+func ExampleLex_dolq_ngative() {
+	defer recoverPanic()
+	lexer := strLexer("$$abcd")
+	lexer.lexPrintExpect(SCONST)
+	// Output: failed: unterminated dollar-quoted string
+}
+
+func ExampleLex_xd_negative() {
+	defer recoverPanic()
+	lexer := strLexer("\"abcd")
+	lexer.lexPrintExpect(IDENT)
+	// Output: failed: unterminated quoted identifier
 }
