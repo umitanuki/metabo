@@ -112,7 +112,14 @@ func (l *lexer) Lex(lval *yySymType) int {
 		xq
 		xdolq
 	)
-	c := l.next()
+
+	/* Start with the last characher we scanned. */
+	c := l.current
+
+	if c == 0 {
+		/* But get next if not scanned (e.g. the very first time). */
+		c = l.next()
+	}
 	xcdepth := 0
 %}
 
@@ -692,6 +699,7 @@ other			.
 
 {identifier}
 	yystr := l.getBuf()
+	l.SET_YYLLOC()
 	/*
 	 * If this is a keyword, return the token number instead of IDENT
 	 */
@@ -709,7 +717,8 @@ other			.
 
 \0
 	l.SET_YYLLOC()
-	return yyEofCode
+	return 0
+	//return yyEofCode
 
 
 %%

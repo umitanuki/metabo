@@ -47,6 +47,23 @@ func ExampleLex_1() {
 	// 2
 }
 
+func ExampleLex_2() {
+	lexer := strLexer("select col1, col2 from tab1")
+	lexer.lexPrintExpect(SELECT)
+	lexer.lexPrintExpect(IDENT)
+	lexer.lexPrintExpect(int(','))
+	lexer.lexPrintExpect(IDENT)
+	lexer.lexPrintExpect(FROM)
+	lexer.lexPrintExpect(IDENT)
+	// Output:
+	// select
+	// col1
+	// ,
+	// col2
+	// from
+	// tab1
+}
+
 func ExampleLex_consts() {
 	lexer := strLexer("b'0101' x'ff'")
 	lexer.lexPrintExpect(BCONST)

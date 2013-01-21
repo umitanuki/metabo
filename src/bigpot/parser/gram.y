@@ -4,16 +4,32 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 )
 
-type Node struct {
+type Node interface {
 
 }
 
+type ResTarget struct {
+	name	string
+}
+
+type ParseTable struct {
+	name	string
+}
+
+type SelectStmt struct {
+	target	 []*ResTarget
+	from	 []*ParseTable
+}
+
+var TopList []Node
 %}
 
 %union{
-	node   *Node
+	node	Node
+	list  []Node
 	str		string
 	ival	int
 	keyword	string
@@ -24,6 +40,7 @@ type Node struct {
 %left	'-' '+'
 %left	'*' '/'
 
+%type <list> statements column_list table_list
 %type <node> statement
 
 /*
@@ -44,11 +61,63 @@ type Node struct {
 
 %%
 statements: /* empty */
+	{
+		$$ = nil
+	}
+		| statement
+	{
+		$$ = append(make([]Node, 0), $1)
+		TopList = $$
+	}
 		| statements ';' statement
+	{
+		$$ = append($1, $3)
+		TopList = $$
+	}
 ;
 
-statement:
+statement: SELECT column_list FROM table_list
 	{
-		$$ = &Node{}
+		target := make([]*ResTarget, len($2), len($2))
+		for i, elem := range $2 {
+			target[i] = elem.(*ResTarget)
+		}
+		from := make([]*ParseTable, len($4), len($4))
+		for i, elem := range $4 {
+			from[i] = elem.(*ParseTable)
+		}
+		$$ = &SelectStmt{
+			target: target,
+			from: from,
+		}
+	}
+
+column_list: IDENT
+	{
+		n := &ResTarget{name: $1}
+		$$ = append(make([]Node, 0), Node(n))
+	}
+		| column_list ',' IDENT
+	{
+		n := &ResTarget{name: $3}
+		$$ = append($1, Node(n))
+	}
+
+table_list: IDENT
+	{
+		n := &ParseTable{name: $1}
+		$$ = append(make([]Node, 0), Node(n))
+	}
+		| table_list ',' IDENT
+	{
+		n := &ParseTable{name: $3}
+		$$ = append($1, Node(n))
 	}
 %%
+
+func ExParse(query string) Node {
+	reader := strings.NewReader(query)
+	lexer := newLexer(reader)
+	yyParse(lexer)
+	return TopList[0]
+}
