@@ -14,7 +14,7 @@ type MySuite struct{}
 var _ = Suite(&MySuite{})
 func (s *MySuite) TestYYParse_1(c *C) {
 	query := "  select col1, col2 FROM tab1"
-	lexer := strLexer(query)
+	lexer := newLexer(query)
 	yyParse(lexer)
 	node, ok := TopList[0].(*SelectStmt)
 	if !ok {

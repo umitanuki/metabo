@@ -3,52 +3,47 @@ package parser
 
 import (
 	"fmt"
-	"io"
 	"strconv"
 	"strings"
 )
 
 type lexer struct {
-	reader io.RuneReader
 	cond int
-	current rune
-	pos int
-	buf []rune
 	literalbuf []rune
 
-	lesspos int
-	lessbuf []rune
-
 	dolqstart string
+
+	headpos, readpos int
+	readbuf []rune
 }
 
-func newLexer(source io.RuneReader) *lexer {
-	return &lexer{reader: source}
+func newLexer(source string) *lexer {
+	return &lexer{
+		readbuf: append([]rune(source), 0),
+		readpos: -1,
+	}
 }
 
 func (l *lexer) next() rune {
-	if l.current != 0 {
-		l.buf = append(l.buf, l.current)
-	}
-	l.current = 0
-
-	if len(l.lessbuf) > 0 {
-		l.current = l.lessbuf[l.lesspos]
-		l.lesspos++
-		if l.lesspos >= len(l.lessbuf) {
-			l.lessbuf = nil
-			l.lesspos = 0
-		}
-	} else if r, _, e := l.reader.ReadRune(); e == nil {
-		l.current = r
+	if l.readpos + 1 < len(l.readbuf) {
+		l.readpos++
+		r := l.readbuf[l.readpos]
+		return r
 	}
 
-	//fmt.Printf("ret: %c\n", l.current)
-	return l.current
+	return 0
 }
 
-func (l *lexer) clearBuf() {
-	l.buf = l.buf[:0]
+func (l *lexer) yytext() []rune {
+	return l.readbuf[l.headpos:l.readpos]
+}
+
+func (l *lexer) yyleng() int {
+	return l.readpos - l.headpos
+}
+
+func (l *lexer) resetRule() {
+	l.headpos = l.readpos
 }
 
 func (l *lexer) startLiteral() {
@@ -63,41 +58,25 @@ func (l *lexer) addLiteral(lits []rune) {
 	l.literalbuf = append(l.literalbuf, lits...)
 }
 
-func (l *lexer) getBuf() string {
-	return string(l.buf)
+func (l *lexer) yystr() string {
+	return string(l.yytext())
 }
 
 /* Returns all but first n chars to a buffer for rescanning later */
 func (l *lexer) yyless(n int) {
-	/*
-	 * If lessbuf is not empty, we haven't read a new rune from reader yet.
-	 */
-	if l.lessbuf != nil {
-		l.lesspos -= n
-		l.current = 0
-		return
-	}
-
-	/*
-	 * Otherwise copy trailing buffer.
-	 */
-	l.lessbuf = l.buf[n:]
-	l.lessbuf = append(l.lessbuf, l.current)
-	l.buf = l.buf[:n]
-	l.lesspos = 0
-	l.current = 0
+	l.readpos = l.headpos + n
 }
 
 func (l *lexer) SET_YYLLOC() {
-	/* not implemented */
+	/* not implemented yet */
 }
 
 func (l *lexer) BEGIN(cond int) {
 	l.cond = cond
-	l.clearBuf()
 }
 
 func (l *lexer) Error(e string) {
+	/* TODO: return error? */
 	panic(e)
 }
 
@@ -108,18 +87,10 @@ func (l *lexer) Lex(lval *yySymType) int {
 		xc
 		xd
 		xh
-		xe
 		xq
 		xdolq
 	)
 
-	/* Start with the last characher we scanned. */
-	c := l.current
-
-	if c == 0 {
-		/* But get next if not scanned (e.g. the very first time). */
-		c = l.next()
-	}
 	xcdepth := 0
 %}
 
@@ -128,9 +99,7 @@ func (l *lexer) Lex(lval *yySymType) int {
 %yyt l.cond
 
 /*
- * OK, here is a short description of lex/flex rules behavior.
- * The longest pattern which matches an input string is always chosen.
- * For equal-length patterns, the first occurring in the rules list is chosen.
+ * golex chooses the first matches rather than flex's longest match.
  * INITIAL is the starting state, to which all non-conditional rules apply.
  * Exclusive states change parsing rules while the state is active.  When in
  * an exclusive state, only those rules defined for that state apply.
@@ -143,25 +112,15 @@ func (l *lexer) Lex(lval *yySymType) int {
  *  <xd> delimited identifiers (double-quoted identifiers)
  *  <xh> hexadecimal numeric string
  *  <xq> standard quoted strings
- *  <xe> extended quoted strings (support backslash escape sequences)
  *  <xdolq> $foo$ quoted strings
- *  <xui> quoted identifier with Unicode escapes
- *  <xus> quoted string with Unicode escapes
- *  <xeu> Unicode surrogate escape in extended string
  */
 
 %x xb
 %x xc
 %x xd
 %x xh
-%x xe
 %x xq
 %x xdolq
-/*
-%x xui
-%x xus
-%x xeu
-*/
 
 /*
  * In order to make the world safe for Windows and Mac clients as well as
@@ -174,11 +133,6 @@ func (l *lexer) Lex(lval *yySymType) int {
  * everything to the end of the input as a comment.  This is correct.  Older
  * versions of Postgres failed to recognize -- as a comment if the input
  * did not end with a newline.
- *
- * XXX perhaps \f (formfeed) should be treated as a newline as well?
- *
- * XXX if you change the set of whitespace characters, fix scanner_isspace()
- * to agree, and see also the plpgsql lexer.
  */
 
 space			[ \t\n\r\f]
@@ -215,7 +169,8 @@ quotestop		{quote}{whitespace}*
 quotecontinue	{quote}{whitespace_with_newline}{quote}
 quotefail		{quote}{whitespace}*"-"
 
-/* Bit string
+/*
+ * Bit string
  * It is tempting to scan the string for only those characters
  * which are allowed. However, this leads to silently swallowed
  * characters if illegal characters are included in the string.
@@ -248,7 +203,8 @@ xqstart			{quote}
 xqdouble		{quote}{quote}
 xqinside		[^']+
 
-/* $foo$ style quotes ("dollar quoting")
+/*
+ * $foo$ style quotes ("dollar quoting")
  * The quoted string starts with $foo$ where "foo" is an optional string
  * in the form of an identifier, except that it may not contain "$", 
  * and extends to the first occurrence of an identical string.  
@@ -263,7 +219,8 @@ dolqdelim		\$({dolq_start}{dolq_cont}*)?\$
 dolqfailed		\${dolq_start}{dolq_cont}*
 dolqinside		[^$]+
 
-/* Double quote
+/*
+ * Double quote
  * Allows embedded spaces and other special characters into identifiers.
  */
 dquote			\"
@@ -272,30 +229,8 @@ xdstop			{dquote}
 xddouble		{dquote}{dquote}
 xdinside		[^"]+
 
-/* Unicode escapes */
-uescape			[uU][eE][sS][cC][aA][pP][eE]{whitespace}*{quote}[^']{quote}
-/* error rule to avoid backup */
-uescapefail		("-"|[uU][eE][sS][cC][aA][pP][eE]{whitespace}*"-"|[uU][eE][sS][cC][aA][pP][eE]{whitespace}*{quote}[^']|[uU][eE][sS][cC][aA][pP][eE]{whitespace}*{quote}|[uU][eE][sS][cC][aA][pP][eE]{whitespace}*|[uU][eE][sS][cC][aA][pP]|[uU][eE][sS][cC][aA]|[uU][eE][sS][cC]|[uU][eE][sS]|[uU][eE]|[uU])
-
-/* Quoted identifier with Unicode escapes */
 /*
-xuistart		[uU]&{dquote}
-xuistop1		{dquote}{whitespace}*{uescapefail}?
-xuistop2		{dquote}{whitespace}*{uescape}
-*/
-
-/* Quoted string with Unicode escapes */
-/*
-xusstart		[uU]&{quote}
-xusstop1		{quote}{whitespace}*{uescapefail}?
-xusstop2		{quote}{whitespace}*{uescape}
-*/
-
-/* error rule to avoid backup */
-xufailed		[uU]&
-
-
-/* C-style comments
+ * C-style comments
  *
  * The "extended comment" syntax closely resembles allowable operator syntax.
  * The tricky part here is to get lex to recognize a string starting with
@@ -357,22 +292,18 @@ param			\${integer}
 
 other			.
 
-/*
- * Dollar quoted strings are totally opaque, and no escaping is done on them.
- * Other quoted strings must allow some special characters such as single-quote
- *  and newline.
- * Embedded single-quotes are implemented both in the SQL standard
- *  style of two adjacent single quotes "''" and in the Postgres/Java style
- *  of escaped-quote "\'".
- * Other embedded escaped characters are matched explicitly and the leading
- *  backslash is dropped from the string.
- * Note that xcstart must appear before operator, as explained above!
- *  Also whitespace (comment) must appear before operator.
- */
-
 %%
-
-	l.clearBuf()
+	c := rune(0)
+	/*
+	 * If it's the very first, start with the first character,
+	 * otherwise we have scanned one further, so use it again.
+	 */
+	if l.readpos == -1 {
+		c = l.next()
+	} else {
+		c = l.readbuf[l.readpos]
+	}
+	l.resetRule()
 
 {whitespace}
 	/* ignore */
@@ -425,7 +356,7 @@ other			.
 
 <xh>{xhinside} |
 <xb>{xbinside}
-	l.addLiteral(l.buf)
+	l.addLiteral(l.yytext())
 
 <xh>{quotecontinue} |
 <xb>{quotecontinue}
@@ -462,37 +393,31 @@ other			.
 	l.BEGIN(xq)
 	l.startLiteral()
 
-{xestart}
-	l.BEGIN(xe)
-
-<xq,xe>{quotestop} |
-<xq,xe>{quotefail}
+<xq>{quotestop} |
+<xq>{quotefail}
 	l.yyless(1)
 	l.BEGIN(INITIAL)
 	lval.str = string(l.literalbuf)
 	return SCONST
 
-<xq,xe>{xqdouble}
+<xq>{xqdouble}
 
 <xq>{xqinside}
-	l.addLiteral(l.buf)
-
-<xe>{xeinside}
-
+	l.addLiteral(l.yytext())
 
 {dolqdelim}
 	l.SET_YYLLOC()
-	l.dolqstart = l.getBuf()
+	l.dolqstart = l.yystr()
 	l.BEGIN(xdolq)
 	l.startLiteral()
 
 {dolqfailed}
 	l.SET_YYLLOC()
 	l.yyless(1)
-	return int(l.buf[0])
+	return int(l.yytext()[0])
 
 <xdolq>{dolqdelim}
-	if l.getBuf() == l.dolqstart {
+	if l.yystr() == l.dolqstart {
 		l.dolqstart = ""
 		l.BEGIN(INITIAL)
 		lval.str = string(l.literalbuf)
@@ -503,20 +428,21 @@ other			.
 		 * the $... part to the output, but put back the final
 		 * $ for rescanning.  Consider $delim$...$junk$delim$
 		 */
-		yyleng := len(l.buf)
-		l.addLiteral(l.buf[:yyleng-1])
+		yytext := l.yytext()
+		yyleng := l.yyleng()
+		l.addLiteral(yytext[:yyleng-1])
 		l.yyless(yyleng - 1)
 	}
 
 <xdolq>{dolqinside}
-	l.addLiteral(l.buf)
+	l.addLiteral(l.yytext())
 
 <xdolq>{dolqfailed}
-	l.addLiteral(l.buf)
+	l.addLiteral(l.yytext())
 
 <xdolq>.
 	/* This is only needed for $ inside the quoted text */
-	l.addLiteralRune(l.buf[0])
+	l.addLiteralRune(l.yytext()[0])
 
 <xdolq>\0
 	l.Error("unterminated dollar-quoted string")
@@ -544,7 +470,7 @@ other			.
 	l.addLiteralRune('"')
 
 <xd>{xdinside}
-	l.addLiteral(l.buf)
+	l.addLiteral(l.yytext())
 
 <xd>\0
 	l.Error("unterminated quoted identifier")
@@ -565,11 +491,11 @@ other			.
 
 {self}
 	l.SET_YYLLOC()
-	return int(l.buf[0])
+	return int(l.yytext()[0])
 
 {operator}
 	/* TODO: rethink rune vs byte */
-	yystr := l.getBuf()
+	yystr := l.yystr()
 	nchars := len(yystr)
 	slashstar := strings.Index(yystr, "/*")
 	dashdash := strings.Index(yystr, "--")
@@ -617,11 +543,12 @@ other			.
 
 	l.SET_YYLLOC()
 	if nchars < len(yystr) {
+		/* Form the string again. */
+		yystr = string(l.yytext()[:nchars])
+
 		/* Strip the unwanted chars from the token */
 		l.yyless(nchars)
 
-		/* After yyless, form the string again. */
-		yystr = l.getBuf()
 		/*
 		 * If what we have left is only one char, and it's
 		 * one of the characters matching "self", then
@@ -655,7 +582,7 @@ other			.
 
 {param}
 	l.SET_YYLLOC()
-	if val, err := strconv.Atoi(l.getBuf()[1:]); err == nil {
+	if val, err := strconv.Atoi(l.yystr()[1:]); err == nil {
 		lval.ival = val
 		return PARAM
 	}
@@ -663,42 +590,44 @@ other			.
 
 {integer}
 	l.SET_YYLLOC()
-	if val, err := strconv.Atoi(l.getBuf()); err == nil {
+	if val, err := strconv.Atoi(l.yystr()); err == nil {
 		lval.ival = val
 		return ICONST
 	}
-	lval.str = l.getBuf()
+	lval.str = l.yystr()
 	return FCONST
 
 {decimal}
 	l.SET_YYLLOC()
-	lval.str = l.getBuf()
+	lval.str = l.yystr()
 	return FCONST
 
 {real}
 	l.SET_YYLLOC()
-	lval.str = l.getBuf()
+	lval.str = l.yystr()
 	return FCONST
 
 {realfail1}
 	/*
 	 * throw back the [Ee]
 	 */
-	l.yyless(len(l.buf) - 1)
+	yystr := string(l.yytext()[:l.yyleng()-1])
+	l.yyless(l.yyleng() - 1)
 	l.SET_YYLLOC()
-	lval.str = l.getBuf()
+	lval.str = yystr
 	return FCONST
 
 {realfail2}
 	/*
 	 * throw back the [Ee][+-]
 	 */
-	l.yyless(len(l.buf) - 2)
-	lval.str = l.getBuf()
+	yystr := string(l.yytext()[:l.yyleng()-2])
+	l.yyless(l.yyleng() - 2)
+	lval.str = yystr
 	return FCONST
 
 {identifier}
-	yystr := l.getBuf()
+	yystr := l.yystr()
 	l.SET_YYLLOC()
 	/*
 	 * If this is a keyword, return the token number instead of IDENT
@@ -713,15 +642,28 @@ other			.
 
 {other}
 	l.SET_YYLLOC()
-	return int(l.buf[0])
+	return int(l.yytext()[0])
 
 \0
 	l.SET_YYLLOC()
 	return 0
-	//return yyEofCode
 
 
 %%
 	panic("scanner panic")
+}
+
+/*
+ * Merely for test, to be called from other package.
+ */
+func ExLex(s string) {
+	l := newLexer(s)
+	lval := yySymType{}
+	for {
+		if r := l.Lex(&lval); r == 0 {
+			break
+		}
+		fmt.Println("<<LEX>>")
+	}
 }
 

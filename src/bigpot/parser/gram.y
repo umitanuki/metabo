@@ -4,7 +4,6 @@ package parser
 
 import (
 	"fmt"
-	"strings"
 )
 
 type Node interface {
@@ -116,8 +115,7 @@ table_list: IDENT
 %%
 
 func ExParse(query string) Node {
-	reader := strings.NewReader(query)
-	lexer := newLexer(reader)
+	lexer := newLexer(query)
 	yyParse(lexer)
 	return TopList[0]
 }
