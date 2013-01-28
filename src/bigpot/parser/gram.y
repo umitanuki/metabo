@@ -12,15 +12,16 @@ type Node interface {
 
 type ResTarget struct {
 	name	string
+	val		Node
 }
 
-type ParseTable struct {
+type ColumnRef struct {
 	name	string
 }
 
 type SelectStmt struct {
-	target	 []*ResTarget
-	from	 []*ParseTable
+	targetList []*ResTarget
+	fromList   []Node
 }
 
 var TopList []Node
@@ -81,35 +82,33 @@ statement: SELECT column_list FROM table_list
 		for i, elem := range $2 {
 			target[i] = elem.(*ResTarget)
 		}
-		from := make([]*ParseTable, len($4), len($4))
-		for i, elem := range $4 {
-			from[i] = elem.(*ParseTable)
-		}
 		$$ = &SelectStmt{
-			target: target,
-			from: from,
+			targetList: target,
+			fromList: $4,
 		}
 	}
 
 column_list: IDENT
 	{
-		n := &ResTarget{name: $1}
+		ref := ColumnRef{name: $1}
+		n := &ResTarget{name: $1, val: Node(ref)}
 		$$ = append(make([]Node, 0), Node(n))
 	}
 		| column_list ',' IDENT
 	{
-		n := &ResTarget{name: $3}
+		ref := ColumnRef{name: $3}
+		n := &ResTarget{name: $3, val: Node(ref)}
 		$$ = append($1, Node(n))
 	}
 
 table_list: IDENT
 	{
-		n := &ParseTable{name: $1}
+		n := &RangeVar{RelationName: $1}
 		$$ = append(make([]Node, 0), Node(n))
 	}
 		| table_list ',' IDENT
 	{
-		n := &ParseTable{name: $3}
+		n := &RangeVar{RelationName: $3}
 		$$ = append($1, Node(n))
 	}
 %%
