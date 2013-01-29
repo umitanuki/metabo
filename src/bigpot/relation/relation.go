@@ -3,7 +3,3 @@ package relation
 
 import "bigpot/system"
 
-type Relation struct {
-	RelId system.Oid
-}
-
