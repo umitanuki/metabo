@@ -1,6 +1,13 @@
 package access
 
+import "encoding/csv"
+import "os"
+import "path/filepath"
+import "strconv"
+
 import "bigpot/system"
+
+var DatabaseDir = "."
 
 type Attribute struct {
 	AttName		system.Name
@@ -40,10 +47,6 @@ type Relation struct {
 	RelDesc *TupleDesc
 }
 
-type HeapTuple struct {
-
-}
-
 type Datum interface{}
 type ScanKey struct {
 	AttNum int32
@@ -54,6 +57,17 @@ type RelationScan struct {
 	Relation *Relation
 	Forward bool
 	ScanKeys []ScanKey // non-pointer, as usually this is short life
+	Reader *csv.Reader
+	File *os.File
+}
+
+type HeapTuple interface {
+	Get(attnum int32) Datum
+}
+
+type CSVTuple struct {
+	Scan *RelationScan
+	Values []string
 }
 
 func HeapOpen(relid system.Oid) (*Relation, error) {
@@ -83,8 +97,12 @@ func HeapOpen(relid system.Oid) (*Relation, error) {
 		{Anum_class_oid, Datum(relid)},
 	}
 
-	class_scan := class_rel.BeginScan(scan_keys)
-	class_tuple := class_scan.Next()
+	class_scan, err := class_rel.BeginScan(scan_keys)
+	if err != nil {
+		return nil, err
+	}
+	defer class_scan.EndScan()
+	class_tuple, err := class_scan.Next()
 	_ = class_tuple
 //	relation = &Relation{
 //		RelId: relid,
@@ -99,11 +117,23 @@ func HeapOpen(relid system.Oid) (*Relation, error) {
 		{Anum_attribute_attrelid, Datum(relid)},
 	}
 
-	attr_scan := attr_rel.BeginScan(scan_keys)
+	attr_scan, err := attr_rel.BeginScan(scan_keys)
+	if err != nil {
+		return nil, err
+	}
+	defer attr_scan.EndScan()
 	var attributes []*Attribute
-	for attr_tuple := attr_scan.Next();
-		attr_tuple != nil;
-		attr_tuple = attr_scan.Next() {
+	for {
+		attr_tuple, err := attr_scan.Next()
+		if err != nil {
+			return nil, err
+		}
+		if attr_tuple == nil {
+			break
+		}
+//	for attr_tuple := attr_scan.Next();
+//		attr_tuple != nil;
+//		attr_tuple = attr_scan.Next() {
 		attribute := &Attribute{
 			AttName: attr_tuple.Get(Anum_attribute_attname).(system.Name),
 			AttType: attr_tuple.Get(Anum_attribute_atttype).(system.Oid),
@@ -118,25 +148,56 @@ func HeapOpen(relid system.Oid) (*Relation, error) {
 }
 
 func (relation *Relation) Close() {
-
 }
 
-func (relation *Relation) BeginScan(keys []ScanKey) *RelationScan{
+func (relation *Relation) BeginScan(keys []ScanKey) (*RelationScan, error) {
+	filepath := filepath.Join(DatabaseDir, strconv.Itoa(int(relation.RelId)))
+	file, err := os.Open(filepath)
+	if err != nil {
+		return nil, err
+	}
 	scan := &RelationScan{
 		Relation: relation,
 		Forward: true,
 		ScanKeys: keys,
+		Reader: csv.NewReader(file),
+		File: file,
 	}
 
-	return scan
+	return scan, nil
 }
 
-func (scan *RelationScan) Next() *HeapTuple {
-//	htuple := &HeapTuple{}
+func (scan *RelationScan) Next() (HeapTuple, error) {
+	values, err := scan.Reader.Read()
+	if err != nil {
+		return nil, err
+	}
 
-	return nil
+	if values == nil {
+		return nil, nil
+	}
+
+	return HeapTuple(&CSVTuple{
+		Scan: scan,
+		Values: values,
+	}), nil
 }
 
-func (htuple *HeapTuple) Get(attnum int32) Datum {
+func (scan *RelationScan) EndScan() {
+	scan.File.Close()
+}
+
+func (tuple *CSVTuple) Get(attnum int32) Datum {
+	value := tuple.Values[attnum - 1]
+	switch tuple.Scan.Relation.RelDesc.Attrs[attnum - 1].AttType {
+	case system.OidType:
+		num, _ := strconv.Atoi(value)
+		return Datum(system.Oid(num))
+	case system.NameType:
+		return Datum(system.Name(value))
+	case system.Int4Type:
+		num, _ := strconv.Atoi(value)
+		return Datum(system.Int4(num))
+	}
 	return nil
 }

@@ -1,7 +1,8 @@
 package system
 
-type Oid uint32
 type Name string
+type Oid uint32
+type Int4 int32
 
 var BoolType Oid = 16
 var ByteType Oid = 17
