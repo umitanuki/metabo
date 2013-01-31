@@ -47,10 +47,9 @@ type Relation struct {
 	RelDesc *TupleDesc
 }
 
-type Datum interface{}
 type ScanKey struct {
 	AttNum int32
-	Val Datum
+	Val system.Datum
 }
 
 type RelationScan struct {
@@ -62,7 +61,7 @@ type RelationScan struct {
 }
 
 type HeapTuple interface {
-	Get(attnum int32) Datum
+	Get(attnum int32) system.Datum
 }
 
 type CSVTuple struct {
@@ -87,6 +86,9 @@ func HeapOpen(relid system.Oid) (*Relation, error) {
 
 	relation := &Relation{RelId: relid}
 
+	/*
+	 * Collect class information.  Currently, nothing but name is stored.
+	 */
 	class_rel, err := HeapOpen(ClassRelId)
 	if err != nil {
 		return nil, err
@@ -94,7 +96,7 @@ func HeapOpen(relid system.Oid) (*Relation, error) {
 	defer class_rel.Close()
 	var scan_keys []ScanKey
 	scan_keys = []ScanKey{
-		{Anum_class_oid, Datum(relid)},
+		{Anum_class_oid, system.Datum(relid)},
 	}
 
 	class_scan, err := class_rel.BeginScan(scan_keys)
@@ -114,9 +116,12 @@ func HeapOpen(relid system.Oid) (*Relation, error) {
 	}
 	defer attr_rel.Close()
 	scan_keys = []ScanKey{
-		{Anum_attribute_attrelid, Datum(relid)},
+		{Anum_attribute_attrelid, system.Datum(relid)},
 	}
 
+	/*
+	 * Collect attributes
+	 */
 	attr_scan, err := attr_rel.BeginScan(scan_keys)
 	if err != nil {
 		return nil, err
@@ -126,14 +131,8 @@ func HeapOpen(relid system.Oid) (*Relation, error) {
 	for {
 		attr_tuple, err := attr_scan.Next()
 		if err != nil {
-			return nil, err
-		}
-		if attr_tuple == nil {
 			break
 		}
-//	for attr_tuple := attr_scan.Next();
-//		attr_tuple != nil;
-//		attr_tuple = attr_scan.Next() {
 		attribute := &Attribute{
 			AttName: attr_tuple.Get(Anum_attribute_attname).(system.Name),
 			AttType: attr_tuple.Get(Anum_attribute_atttype).(system.Oid),
@@ -168,36 +167,40 @@ func (relation *Relation) BeginScan(keys []ScanKey) (*RelationScan, error) {
 }
 
 func (scan *RelationScan) Next() (HeapTuple, error) {
-	values, err := scan.Reader.Read()
-	if err != nil {
-		return nil, err
+	outer: for {
+		values, err := scan.Reader.Read()
+		if err != nil {
+			return nil, err
+		}
+
+		if values == nil {
+			return nil, nil
+		}
+
+		tuple := HeapTuple(&CSVTuple{
+			Scan: scan,
+			Values: values,
+		})
+
+		for _, key := range scan.ScanKeys {
+			val := tuple.Get(key.AttNum)
+			/* TODO check key.Val type and TupleDesc's type */
+			if !val.Equals(key.Val) {
+				continue outer
+			}
+		}
+		return tuple, nil
 	}
 
-	if values == nil {
-		return nil, nil
-	}
-
-	return HeapTuple(&CSVTuple{
-		Scan: scan,
-		Values: values,
-	}), nil
+	panic("should not come here")
 }
 
 func (scan *RelationScan) EndScan() {
 	scan.File.Close()
 }
 
-func (tuple *CSVTuple) Get(attnum int32) Datum {
+func (tuple *CSVTuple) Get(attnum int32) system.Datum {
 	value := tuple.Values[attnum - 1]
-	switch tuple.Scan.Relation.RelDesc.Attrs[attnum - 1].AttType {
-	case system.OidType:
-		num, _ := strconv.Atoi(value)
-		return Datum(system.Oid(num))
-	case system.NameType:
-		return Datum(system.Name(value))
-	case system.Int4Type:
-		num, _ := strconv.Atoi(value)
-		return Datum(system.Int4(num))
-	}
-	return nil
+	atttype := tuple.Scan.Relation.RelDesc.Attrs[attnum - 1].AttType
+	return system.DatumFromString(value, atttype)
 }

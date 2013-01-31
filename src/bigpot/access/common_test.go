@@ -4,7 +4,6 @@ import (
 	. "launchpad.net/gocheck"
 	"testing"
 	"fmt"
-	"strconv"
 	"bigpot/system"
 )
 
@@ -41,6 +40,7 @@ func ExampleHeapScan_class() {
 	relation, err := HeapOpen(ClassRelId)
 	if err != nil {
 		fmt.Printf("%s", err)
+		return
 	}
 	defer relation.Close()
 
@@ -51,18 +51,57 @@ func ExampleHeapScan_class() {
 	}
 
 	defer scan.EndScan()
-	for i := 0; ; i++ {
+	for i := 1; ; i++ {
 		tuple, err := scan.Next()
 		if err != nil {
 			break
 		}
-		fmt.Printf("%d,%d:%s\n", i, 1, strconv.Itoa(int(tuple.Get(1).(system.Oid))))
-		fmt.Printf("%d,%d:%s\n", i, 2, tuple.Get(2).(system.Name))
+		for j := 1; j <= len(relation.RelDesc.Attrs); j++ {
+			fmt.Printf("%d,%d:%s\n", i, j, tuple.Get(int32(j)).ToString())
+		}
 	}
 
 	// OUTPUT:
-	// 0,1:1259
-	// 0,2:bp_class
-	// 1,1:1249
-	// 1,2:bp_attribute
+	// 1,1:1259
+	// 1,2:bp_class
+	// 2,1:1249
+	// 2,2:bp_attribute
+	// 3,1:20109
+	// 3,2:test_table
+}
+
+func ExampleHeapScan_usertable() {
+	relation, err := HeapOpen(system.Oid(20109))
+	if err != nil {
+		fmt.Printf("%s", err)
+		return
+	}
+	defer relation.Close()
+
+	scan, err := relation.BeginScan(nil)
+	if err != nil {
+		fmt.Printf("%s", err)
+		return
+	}
+
+	defer scan.EndScan()
+	for i := 1; ; i++ {
+		tuple, err := scan.Next()
+		if err != nil {
+			break
+		}
+		for j := 1; j <= len(relation.RelDesc.Attrs); j++ {
+			fmt.Printf("%d,%d:%s\n", i, j, tuple.Get(int32(j)).ToString())
+		}
+	}
+
+	// OUTPUT:
+	// 1,1:1
+	// 1,2:foo1
+	// 2,1:2
+	// 2,2:bar2
+	// 3,1:3
+	// 3,2:aho3
+	// 4,1:4
+	// 4,2:bar5
 }
