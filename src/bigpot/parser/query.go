@@ -1,6 +1,9 @@
 package parser
 
-import "bigpot/relation"
+import "errors"
+
+//import "bigpot/relation"
+import "bigpot/access"
 import "bigpot/system"
 
 type CommandType int
@@ -12,8 +15,8 @@ const (
 )
 
 type RangeVar struct {
-	SchemaName   string
-	RelationName string
+	SchemaName   system.Name
+	RelationName system.Name
 }
 
 type Expr struct {
@@ -119,7 +122,10 @@ func (parser *ParserImpl) transformFromClause(stmt *SelectStmt) error {
 			rv := item.(*RangeVar)
 			rte := &RangeTblEntry{}
 			/* TODO: implement relation_open_rv() */
-			relation := RelationOpenRv(rv)
+			relation, err := rv.OpenRelation()
+			if err != nil {
+				return err
+			}
 			rte.relid = relation.RelId
 			/* TODO: make Alias and add it to namespace, not Rte */
 			parser.namespace = append(parser.namespace, rte)
@@ -163,8 +169,25 @@ func (parser *ParserImpl) transformExpr(node Node) (expr *Expr, err error) {
 	panic("unreachable")
 }
 
-func RelationOpenRv(rv *RangeVar) *relation.Relation {
-	rel := &relation.Relation{}
+func (rv *RangeVar) OpenRelation() (rel *access.Relation, err error) {
+	class_rel, err := access.HeapOpen(access.ClassRelId)
+	if err != nil {
+		return nil, err
+	}
+	defer class_rel.Close()
+	scankeys := []access.ScanKey {
+		{access.Anum_class_relname, system.Datum(rv.RelationName)},
+	}
+	scan, err := class_rel.BeginScan(scankeys)
+	if err != nil {
+		return nil, err
+	}
+	defer scan.EndScan()
+	tuple, err := scan.Next()
+	if err != nil {
+		return nil, errors.New("relation not found")
+	}
+	relid := tuple.Get(int32(1)).(system.Oid)
 
-	return rel
+	return access.HeapOpen(relid)
 }

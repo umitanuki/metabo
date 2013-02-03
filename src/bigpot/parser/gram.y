@@ -4,6 +4,8 @@ package parser
 
 import (
 	"fmt"
+
+	"bigpot/system"
 )
 
 type Node interface {
@@ -103,12 +105,12 @@ column_list: IDENT
 
 table_list: IDENT
 	{
-		n := &RangeVar{RelationName: $1}
+		n := &RangeVar{RelationName: system.Name($1)}
 		$$ = append(make([]Node, 0), Node(n))
 	}
 		| table_list ',' IDENT
 	{
-		n := &RangeVar{RelationName: $3}
+		n := &RangeVar{RelationName: system.Name($3)}
 		$$ = append($1, Node(n))
 	}
 %%
