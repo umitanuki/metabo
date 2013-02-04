@@ -14,23 +14,29 @@ const (
 	CMD_DELETE
 )
 
+type Alias struct {
+	AliasName string
+	ColumnNames []string
+}
+
 type RangeVar struct {
 	SchemaName   system.Name
 	RelationName system.Name
+	AliasName    Alias
 }
 
-type Expr struct {
-	ReturnType system.Oid
+type Expr interface {
+	ResultType() system.Oid
 }
 
 type Var struct {
-	Expr
+	resultType system.Oid
 	VarNo uint16
 	VarAttNo uint16
 }
 
 type TargetEntry struct {
-	Expr *Expr
+	Expr Expr
 	ResNo uint16
 	ResName uint16
 	ResJunk bool
@@ -49,7 +55,8 @@ const (
 type RangeTblEntry struct {
 	RteType	RteType
 	/* for relation */
-	relid system.Oid
+	RelId system.Oid
+	RefAlias *Alias
 }
 
 type Query struct {
@@ -121,18 +128,33 @@ func (parser *ParserImpl) transformFromClause(stmt *SelectStmt) error {
 		case *RangeVar:
 			rv := item.(*RangeVar)
 			rte := &RangeTblEntry{}
-			/* TODO: implement relation_open_rv() */
 			relation, err := rv.OpenRelation()
 			if err != nil {
 				return err
 			}
-			rte.relid = relation.RelId
-			/* TODO: make Alias and add it to namespace, not Rte */
+			defer relation.Close()
+			rte.RelId = relation.RelId
+			rte.RefAlias = buildAlias(relation)
+
 			parser.namespace = append(parser.namespace, rte)
 		}
 	}
 
 	return nil
+}
+
+func buildAlias(relation *access.Relation) *Alias {
+	alias := &Alias{}
+	/* TODO: Add check for user-provided alias name */
+	alias.AliasName = string(relation.RelName)
+
+	names := []string{}
+	for _, attr := range relation.RelDesc.Attrs {
+		names = append(names, string(attr.AttName))
+	}
+	alias.ColumnNames = names
+
+	return alias
 }
 
 func (parser *ParserImpl) transformTargetList(targetList []*ResTarget) (tlist []*TargetEntry, err error) {
@@ -157,12 +179,33 @@ func (parser *ParserImpl) transformTargetEntry(restarget *ResTarget) (tle *Targe
 	return
 }
 
-func (parser *ParserImpl) transformExpr(node Node) (expr *Expr, err error) {
+func (parser *ParserImpl) transformExpr(node Node) (expr Expr, err error) {
 	switch node.(type) {
 	default:
 		return nil, parseError("unknown node type")
 	case *ColumnRef:
-	/* TODO: Explore namespace and transform to Var */
+		colref := node.(*ColumnRef)
+		/* TODO: use hash instead of linear search? */
+		found := false
+		var variable Var
+		for rteidx, rte := range parser.namespace {
+			for attidx, attname := range rte.RefAlias.ColumnNames {
+				if attname == colref.name {
+					if found {
+						return nil, parseError("ambiguous column reference")
+					}
+					found = true
+					variable.VarNo = uint16(rteidx + 1)
+					variable.VarAttNo = uint16(attidx + 1)
+				}
+			}
+
+		}
+		if !found {
+			return nil, parseError("column reference not found")
+		}
+
+		return Expr(&variable), nil
 
 	}
 
@@ -190,4 +233,8 @@ func (rv *RangeVar) OpenRelation() (rel *access.Relation, err error) {
 	relid := tuple.Get(int32(1)).(system.Oid)
 
 	return access.HeapOpen(relid)
+}
+
+func (node *Var) ResultType() system.Oid {
+	return node.resultType
 }

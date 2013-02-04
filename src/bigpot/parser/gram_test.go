@@ -3,6 +3,7 @@ package parser
 import (
 	. "launchpad.net/gocheck"
 	"testing"
+	"bigpot/system"
 )
 
 // Hook up gocheck into the gotest runner.
@@ -20,7 +21,7 @@ func (s *MySuite) TestYYParse_1(c *C) {
 	if !ok {
 		c.Error("node is not SelectStmt")
 	}
-	c.Check(node.target[0].name, Equals, "col1")
-	c.Check(node.target[1].name, Equals, "col2")
-	c.Check(node.from[0].name, Equals, "tab1")
+	c.Check(node.targetList[0].name, Equals, "col1")
+	c.Check(node.targetList[1].name, Equals, "col2")
+	c.Check(node.fromList[0].(*RangeVar).RelationName, Equals, system.Name("tab1"))
 }

@@ -44,6 +44,7 @@ var Anum_attribute_atttype int32 = 4
 
 type Relation struct {
 	RelId system.Oid
+	RelName system.Name
 	RelDesc *TupleDesc
 }
 
@@ -73,18 +74,18 @@ func HeapOpen(relid system.Oid) (*Relation, error) {
 	if relid == ClassRelId {
 		relation := &Relation {
 			RelId: relid,
+			RelName: "bp_class",
 			RelDesc: ClassTupleDesc,
 		}
 		return relation, nil
 	} else if relid == AttributeRelId {
 		relation := &Relation {
 			RelId: relid,
+			RelName: "bp_attribute",
 			RelDesc: AttributeTupleDesc,
 		}
 		return relation, nil
 	}
-
-	relation := &Relation{RelId: relid}
 
 	/*
 	 * Collect class information.  Currently, nothing but name is stored.
@@ -105,10 +106,10 @@ func HeapOpen(relid system.Oid) (*Relation, error) {
 	}
 	defer class_scan.EndScan()
 	class_tuple, err := class_scan.Next()
-	_ = class_tuple
-//	relation = &Relation{
-//		RelId: relid,
-//	}
+	relation := &Relation{
+		RelId: relid,
+		RelName: class_tuple.Get(2).(system.Name),
+	}
 
 	attr_rel, err := HeapOpen(AttributeRelId)
 	if err != nil {
