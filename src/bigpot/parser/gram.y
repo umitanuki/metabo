@@ -92,13 +92,13 @@ statement: SELECT column_list FROM table_list
 
 column_list: IDENT
 	{
-		ref := ColumnRef{name: $1}
+		ref := &ColumnRef{name: $1}
 		n := &ResTarget{name: $1, val: Node(ref)}
 		$$ = append(make([]Node, 0), Node(n))
 	}
 		| column_list ',' IDENT
 	{
-		ref := ColumnRef{name: $3}
+		ref := &ColumnRef{name: $3}
 		n := &ResTarget{name: $3, val: Node(ref)}
 		$$ = append($1, Node(n))
 	}

@@ -8,7 +8,7 @@ import "bigpot/system"
 
 type CommandType int
 const (
-	CMD_SELECT = iota
+	CMD_SELECT = CommandType(iota)
 	CMD_INSERT
 	CMD_UPDATE
 	CMD_DELETE
@@ -31,6 +31,7 @@ type Expr interface {
 
 type Var struct {
 	resultType system.Oid
+	// TODO: AttributeId is int32?
 	VarNo uint16
 	VarAttNo uint16
 }
@@ -44,7 +45,7 @@ type TargetEntry struct {
 
 type RteType int
 const (
-	RTE_RELATION = iota
+	RTE_RELATION = RteType(iota)
 	RTE_SUBQUERY
 	RTE_JOIN
 	RTE_VALUES
@@ -88,12 +89,11 @@ func parseError(msg string) error {
 	return ParserError{msg: msg}
 }
 
-func (parser *ParserImpl) Parse(query_string string) *Query {
+func (parser *ParserImpl) Parse(query_string string) (*Query, error) {
 	lexer := newLexer(query_string)
 	yyParse(lexer)
-	query := &Query{}
-
-	return query
+	node := TopList[0]
+	return parser.transformStmt(node)
 }
 
 func (parser *ParserImpl) transformStmt(node Node) (*Query, error) {
@@ -116,6 +116,8 @@ func (parser *ParserImpl) transformSelectStmt(stmt *SelectStmt) (query *Query, e
 		parser.transformTargetList(stmt.targetList); err != nil {
 		return
 	}
+
+	query.RangeTables = parser.namespace
 
 	return
 }
