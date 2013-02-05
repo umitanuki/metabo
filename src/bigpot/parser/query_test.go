@@ -38,7 +38,9 @@ func (s *MySuite) TestTransform(c *C) {
 	}
 
 	c.Check(query.TargetList[0].Expr.(*Var).VarAttNo, Equals, uint16(1))
+	c.Check(query.TargetList[0].Expr.(*Var).resultType, Equals, system.OidType)
 	c.Check(query.TargetList[1].Expr.(*Var).VarAttNo, Equals, uint16(2))
+	c.Check(query.TargetList[1].Expr.(*Var).resultType, Equals, system.NameType)
 	c.Check(query.RangeTables[0].RteType, Equals, RTE_RELATION)
 	c.Check(query.RangeTables[0].RelId, Equals, access.ClassRelId)
 }

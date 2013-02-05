@@ -29,8 +29,12 @@ type Expr interface {
 	ResultType() system.Oid
 }
 
-type Var struct {
+type ExprImpl struct {
 	resultType system.Oid
+}
+
+type Var struct {
+	ExprImpl
 	// TODO: AttributeId is int32?
 	VarNo uint16
 	VarAttNo uint16
@@ -187,16 +191,24 @@ func (parser *ParserImpl) transformExpr(node Node) (expr Expr, err error) {
 		return nil, parseError("unknown node type")
 	case *ColumnRef:
 		colref := node.(*ColumnRef)
-		/* TODO: use hash instead of linear search? */
+		/* TODO: use map instead of linear search? */
 		found := false
 		var variable Var
 		for rteidx, rte := range parser.namespace {
+			/* TODO: colref may have table name too */
 			for attidx, attname := range rte.RefAlias.ColumnNames {
 				if attname == colref.name {
 					if found {
 						return nil, parseError("ambiguous column reference")
 					}
 					found = true
+					relation, err := access.HeapOpen(rte.RelId)
+					if err != nil {
+						return nil, err
+					}
+					tupdesc := relation.RelDesc
+
+					variable.resultType = tupdesc.Attrs[attidx].AttType
 					variable.VarNo = uint16(rteidx + 1)
 					variable.VarAttNo = uint16(attidx + 1)
 				}
@@ -215,6 +227,7 @@ func (parser *ParserImpl) transformExpr(node Node) (expr Expr, err error) {
 }
 
 func (rv *RangeVar) OpenRelation() (rel *access.Relation, err error) {
+	/* TODO: Refactor this to RelnameGetOid() */
 	class_rel, err := access.HeapOpen(access.ClassRelId)
 	if err != nil {
 		return nil, err
@@ -237,6 +250,6 @@ func (rv *RangeVar) OpenRelation() (rel *access.Relation, err error) {
 	return access.HeapOpen(relid)
 }
 
-func (node *Var) ResultType() system.Oid {
+func (node *ExprImpl) ResultType() system.Oid {
 	return node.resultType
 }
