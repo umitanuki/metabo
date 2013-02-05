@@ -6,7 +6,6 @@ import (
 )
 
 type Node interface {
-	Visit(func(Node))
 }
 
 type PlanRoot struct {
@@ -54,14 +53,4 @@ func makeSeqScan(tlist []*parser.TargetEntry, rte *parser.RangeTblEntry) *SeqSca
 	}
 
 	return scan
-}
-
-func (node *Plan) Visit(callBack func(node Node)) {
-	callBack(node)
-	if node.LeftTree != nil {
-		node.LeftTree.Visit(callBack)
-	}
-	if node.RightTree != nil {
-		node.RightTree.Visit(callBack)
-	}
 }
