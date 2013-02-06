@@ -5,12 +5,12 @@ import "bigpot/planner"
 
 type Node interface {
 	Init()
-	Exec() access.HeapTuple
+	Exec() access.Tuple
 	End()
 }
 
 type Scan interface {
-	GetNext() access.HeapTuple
+	GetNext() access.Tuple
 }
 
 type SeqScan struct {
@@ -33,12 +33,12 @@ func (scan *SeqScan) Init() {
 	}
 }
 
-func (scan *SeqScan) Exec() access.HeapTuple {
+func (scan *SeqScan) Exec() access.Tuple {
 	/* TODO: projection */
 	return scan.GetNext()
 }
 
-func (scan *SeqScan) GetNext() access.HeapTuple {
+func (scan *SeqScan) GetNext() access.Tuple {
 	if tuple, err := scan.scan.Next(); err == nil {
 		return tuple
 	}

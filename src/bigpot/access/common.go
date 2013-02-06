@@ -61,7 +61,7 @@ type RelationScan struct {
 	File *os.File
 }
 
-type HeapTuple interface {
+type Tuple interface {
 	Get(attnum int32) system.Datum
 }
 
@@ -167,7 +167,7 @@ func (relation *Relation) BeginScan(keys []ScanKey) (*RelationScan, error) {
 	return scan, nil
 }
 
-func (scan *RelationScan) Next() (HeapTuple, error) {
+func (scan *RelationScan) Next() (Tuple, error) {
 	outer: for {
 		values, err := scan.Reader.Read()
 		if err != nil {
@@ -178,7 +178,7 @@ func (scan *RelationScan) Next() (HeapTuple, error) {
 			return nil, nil
 		}
 
-		tuple := HeapTuple(&CSVTuple{
+		tuple := Tuple(&CSVTuple{
 			Scan: scan,
 			Values: values,
 		})
