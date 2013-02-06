@@ -66,7 +66,7 @@ type Tuple interface {
 }
 
 type CSVTuple struct {
-	Scan *RelationScan
+	TupleDesc *TupleDesc
 	Values []string
 }
 
@@ -179,7 +179,7 @@ func (scan *RelationScan) Next() (Tuple, error) {
 		}
 
 		tuple := Tuple(&CSVTuple{
-			Scan: scan,
+			TupleDesc: scan.Relation.RelDesc,
 			Values: values,
 		})
 
@@ -202,6 +202,6 @@ func (scan *RelationScan) EndScan() {
 
 func (tuple *CSVTuple) Get(attnum int32) system.Datum {
 	value := tuple.Values[attnum - 1]
-	atttype := tuple.Scan.Relation.RelDesc.Attrs[attnum - 1].AttType
+	atttype := tuple.TupleDesc.Attrs[attnum - 1].AttType
 	return system.DatumFromString(value, atttype)
 }

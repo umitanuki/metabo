@@ -14,6 +14,7 @@ type ExecutorImpl struct {
 	planRoot *planner.PlanRoot
 	TupleDesc *access.TupleDesc
 	execRoot Node
+	scanTuple access.Tuple
 }
 
 func NewExecutor(planRoot *planner.PlanRoot) *ExecutorImpl {
@@ -29,7 +30,6 @@ func (exec *ExecutorImpl) initExecNode(node planner.Node) Node{
 		scan.SeqScan = *(node.(*planner.SeqScan))
 		scan.executor = exec
 		scan.Init()
-		/* TODO: return Exec node */
 
 		return Node(scan)
 	}

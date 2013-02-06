@@ -43,7 +43,7 @@ type Var struct {
 type TargetEntry struct {
 	Expr Expr
 	ResNo uint16
-	ResName uint16
+	ResName system.Name
 	ResJunk bool
 }
 
@@ -164,9 +164,10 @@ func buildAlias(relation *access.Relation) *Alias {
 }
 
 func (parser *ParserImpl) transformTargetList(targetList []*ResTarget) (tlist []*TargetEntry, err error) {
-	for _, item := range targetList {
+	for i, item := range targetList {
 		var tle *TargetEntry
 		tle, err = parser.transformTargetEntry(item)
+		tle.ResNo = uint16(i + 1)
 		if err != nil {
 			return
 		}
@@ -181,6 +182,9 @@ func (parser *ParserImpl) transformTargetEntry(restarget *ResTarget) (tle *Targe
 	err = nil
 
 	tle.Expr, err = parser.transformExpr(restarget.val)
+	/* ResName, ResNo */
+	tle.ResName = system.Name(restarget.name)
+	tle.ResJunk = false
 
 	return
 }
